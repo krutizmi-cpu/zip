@@ -1,7 +1,1 @@
-pandas
 streamlit
-thefuzz
-python-Levenshtein
-requests
-openpyxl
-xlrd==2.0.1
