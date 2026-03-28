@@ -1,18 +1,20 @@
 import io
+import zipfile
+import hashlib
 from pathlib import Path
 
 import pandas as pd
 import requests
 import streamlit as st
 from rapidfuzz import fuzz, process
+from openpyxl import load_workbook
 
 
 st.set_page_config(page_title="Price Aggregator", layout="wide")
 
-
 SUPPLIERS = {
     "supplier1": {
-        "label": "1. Velozapchasti",
+        "label": "1. Velozapчасти",
         "sheet_name": "Sheet1",
         "header_row": 7,
         "source_type": "file",
@@ -54,6 +56,18 @@ PRICE_TIER_LABELS = {
     "own_price": "Своим",
     "price_rrc": "РРЦ",
 }
+
+
+def init_state():
+    defaults = {
+        "offers_by_supplier": {},
+        "images_by_supplier": {},
+        "master_df": pd.DataFrame(),
+        "mapping_df": pd.DataFrame(),
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 
 def normalize_name(value: str) -> str:
@@ -104,22 +118,144 @@ def normalize_google_sheet_url(url: str) -> str:
     return url
 
 
-def load_from_url(url: str, sheet_name, header_row):
-    final_url = normalize_google_sheet_url(url)
+def read_source_bytes(source_type, uploaded_file, source_url):
+    if source_type == "file":
+        if uploaded_file is None:
+            raise ValueError("Нужно загрузить файл.")
+        return uploaded_file.name, uploaded_file.getvalue()
+
+    if not source_url.strip():
+        raise ValueError("Нужно указать ссылку.")
+    final_url = normalize_google_sheet_url(source_url.strip())
     response = requests.get(final_url, timeout=60)
     response.raise_for_status()
-    content = io.BytesIO(response.content)
-    df = pd.read_excel(content, sheet_name=sheet_name, header=header_row)
-    return clean_columns(df)
+    filename = final_url.split("/")[-1] or "supplier.xlsx"
+    if "format=xlsx" in final_url and not filename.endswith(".xlsx"):
+        filename = "supplier.xlsx"
+    return filename, response.content
 
 
-def load_uploaded_file(uploaded_file, sheet_name, header_row):
-    suffix = Path(uploaded_file.name).suffix.lower()
+def load_source_to_df(filename, file_bytes, sheet_name, header_row):
+    suffix = Path(filename).suffix.lower()
+    workbook = None
+
     if suffix == ".csv":
-        df = pd.read_csv(uploaded_file)
+        df = pd.read_csv(io.BytesIO(file_bytes))
+    elif suffix == ".xls":
+        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=header_row, engine="xlrd")
     else:
-        df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=header_row)
-    return clean_columns(df)
+        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=header_row)
+        workbook = load_workbook(io.BytesIO(file_bytes))
+
+    df = clean_columns(df)
+    df["__excel_row__"] = range(header_row + 2, header_row + 2 + len(df))
+    return df, workbook
+
+
+def extract_hyperlinks_map(ws, header_row):
+    mapping = {}
+    excel_header_row = header_row + 1
+    photo_col = None
+
+    for col in range(1, ws.max_column + 1):
+        if str(ws.cell(excel_header_row, col).value).strip() == "Товар на сайте":
+            photo_col = col
+            break
+
+    if photo_col is None:
+        return mapping
+
+    for row in range(excel_header_row + 1, ws.max_row + 1):
+        cell = ws.cell(row, photo_col)
+        if cell.hyperlink and cell.hyperlink.target:
+            mapping[row] = cell.hyperlink.target
+    return mapping
+
+
+def safe_ext_from_url(url: str) -> str:
+    for ext in [".jpg", ".jpeg", ".png", ".webp"]:
+        if ext in url.lower():
+            return ext
+    return ".jpg"
+
+
+def extract_images_map(ws):
+    images = {}
+    for img in getattr(ws, "_images", []):
+        try:
+            excel_row = img.anchor._from.row + 1
+            data = img._data()
+            images[excel_row] = data
+        except Exception:
+            continue
+    return images
+
+
+def download_image_bytes(url: str):
+    try:
+        resp = requests.get(url, timeout=20)
+        resp.raise_for_status()
+        return resp.content
+    except Exception:
+        return None
+
+
+def build_photo_ref(prefix: str, seed: str, ext: str):
+    digest = hashlib.md5(seed.encode("utf-8")).hexdigest()[:16]
+    return f"images/{prefix}_{digest}{ext}"
+
+
+def attach_images(parsed_df, supplier_key, workbook, header_row):
+    parsed_df = parsed_df.copy()
+    image_store = {}
+
+    if supplier_key == "supplier2" and workbook is not None:
+        ws = workbook[SUPPLIERS[supplier_key]["sheet_name"]]
+        links_map = extract_hyperlinks_map(ws, header_row)
+        photo_refs = []
+
+        for _, row in parsed_df.iterrows():
+            excel_row = int(row.get("__excel_row__", 0))
+            url = links_map.get(excel_row, "")
+            article = str(row.get("supplier_article", "") or excel_row)
+            if url:
+                ext = safe_ext_from_url(url)
+                photo_ref = build_photo_ref("supplier2", article, ext)
+                if photo_ref not in image_store:
+                    data = download_image_bytes(url)
+                    if data:
+                        image_store[photo_ref] = data
+                photo_refs.append(photo_ref if photo_ref in image_store else "")
+            else:
+                photo_refs.append("")
+
+        parsed_df["source_image_url"] = [links_map.get(int(r), "") for r in parsed_df["__excel_row__"]]
+        parsed_df["photo_ref"] = photo_refs
+        return parsed_df, image_store
+
+    if supplier_key in ["supplier3", "supplier4"] and workbook is not None:
+        ws = workbook[SUPPLIERS[supplier_key]["sheet_name"]]
+        img_map = extract_images_map(ws)
+        photo_refs = []
+
+        for _, row in parsed_df.iterrows():
+            excel_row = int(row.get("__excel_row__", 0))
+            img_bytes = img_map.get(excel_row)
+            if img_bytes:
+                seed = f"{supplier_key}_{excel_row}_{row.get('name', '')}"
+                photo_ref = build_photo_ref(supplier_key, seed, ".png")
+                image_store[photo_ref] = img_bytes
+                photo_refs.append(photo_ref)
+            else:
+                photo_refs.append("")
+
+        parsed_df["source_image_url"] = ""
+        parsed_df["photo_ref"] = photo_refs
+        return parsed_df, image_store
+
+    parsed_df["source_image_url"] = parsed_df.get("image_url", "")
+    parsed_df["photo_ref"] = ""
+    return parsed_df, image_store
 
 
 def apply_selected_price_tier(df, selected_tier: str):
@@ -148,16 +284,13 @@ def parse_supplier1(df):
 
     df["supplier_article"] = df["supplier_article"].fillna("").astype(str).str.strip()
     df["name"] = df["name"].fillna("").astype(str).str.strip()
-    df = df[df["supplier_article"] != ""]
-    df = df[df["name"] != ""]
+    df = df[(df["supplier_article"] != "") & (df["name"] != "")]
     df = df[~df["name"].str.startswith("(")]
     df["price"] = df["price"].apply(to_float)
     df["stock"] = None
-    df["image_url"] = df["supplier_article"].apply(
-        lambda x: f"https://velozapchasti-optom.ru/?product={x}" if x else ""
-    )
+    df["image_url"] = ""
     df["supplier"] = "supplier1"
-    return df[["supplier", "supplier_article", "name", "price", "stock", "image_url"]]
+    return df[["supplier", "supplier_article", "name", "price", "stock", "image_url", "__excel_row__"]]
 
 
 def parse_supplier2(df):
@@ -185,7 +318,7 @@ def parse_supplier2(df):
 
     df["image_url"] = ""
     df["supplier"] = "supplier2"
-    return df[["supplier", "supplier_article", "name", "price", "price_opt2", "price_opt3", "price_rrc", "stock", "image_url"]]
+    return df[["supplier", "supplier_article", "name", "price", "price_opt2", "price_opt3", "price_rrc", "stock", "image_url", "__excel_row__"]]
 
 
 def parse_supplier3(df):
@@ -211,9 +344,9 @@ def parse_supplier3(df):
 
     df["supplier_article"] = ""
     df["stock"] = None
-    df["image_url"] = df["photo"].fillna("").astype(str).str.strip() if "photo" in df.columns else ""
+    df["image_url"] = ""
     df["supplier"] = "supplier3"
-    return df[["supplier", "supplier_article", "name", "price", "price_opt10", "price_opt50", "stock", "image_url"]]
+    return df[["supplier", "supplier_article", "name", "price", "price_opt10", "price_opt50", "stock", "image_url", "__excel_row__"]]
 
 
 def parse_supplier4(df):
@@ -242,9 +375,9 @@ def parse_supplier4(df):
             df[col] = df[col].apply(to_float)
 
     df["supplier_article"] = ""
-    df["image_url"] = df["photo"].fillna("").astype(str).str.strip() if "photo" in df.columns else ""
+    df["image_url"] = ""
     df["supplier"] = "supplier4"
-    return df[["supplier", "supplier_article", "name", "price", "price_rrc", "own_price", "pack_qty", "weight_kg", "stock", "image_url"]]
+    return df[["supplier", "supplier_article", "name", "price", "price_rrc", "own_price", "pack_qty", "weight_kg", "stock", "image_url", "__excel_row__"]]
 
 
 def parse_supplier(supplier_key, df):
@@ -283,7 +416,7 @@ def build_master(offers_df):
         for article, grp in article_df.groupby("supplier_article"):
             best_price = grp["base_price"].dropna().min() if "base_price" in grp.columns else None
             stock_sum = grp["stock"].dropna().sum() if "stock" in grp.columns else None
-            image = next((x for x in grp["image_url"].fillna("").tolist() if x), "")
+            photo_ref = next((x for x in grp["photo_ref"].fillna("").tolist() if x), "")
             name = grp.iloc[0]["name"]
             norm = grp.iloc[0]["normalized_name"]
 
@@ -294,7 +427,7 @@ def build_master(offers_df):
                 "normalized_name": norm,
                 "final_price": best_price,
                 "final_stock": int(stock_sum) if pd.notna(stock_sum) else None,
-                "final_image": image,
+                "final_image": photo_ref,
             })
 
             for _, row in grp.iterrows():
@@ -307,7 +440,6 @@ def build_master(offers_df):
                     "match_method": "article_exact",
                     "confidence": 100,
                 })
-
             master_id += 1
 
     master_names = [row["normalized_name"] for row in master_rows]
@@ -323,7 +455,7 @@ def build_master(offers_df):
                 "normalized_name": norm,
                 "final_price": row.get("base_price"),
                 "final_stock": row.get("stock"),
-                "final_image": row.get("image_url", ""),
+                "final_image": row.get("photo_ref", ""),
             })
             mapping_rows.append({
                 "supplier": row["supplier"],
@@ -349,7 +481,7 @@ def build_master(offers_df):
                 "normalized_name": norm,
                 "master_id": matched_master_id,
                 "match_method": "name_fuzzy",
-                "confidence": match[1],
+                "confidence": float(match[1]),
             })
         else:
             master_rows.append({
@@ -359,7 +491,7 @@ def build_master(offers_df):
                 "normalized_name": norm,
                 "final_price": row.get("base_price"),
                 "final_stock": row.get("stock"),
-                "final_image": row.get("image_url", ""),
+                "final_image": row.get("photo_ref", ""),
             })
             mapping_rows.append({
                 "supplier": row["supplier"],
@@ -376,14 +508,29 @@ def build_master(offers_df):
     return pd.DataFrame(master_rows), pd.DataFrame(mapping_rows)
 
 
-if "offers_by_supplier" not in st.session_state:
-    st.session_state.offers_by_supplier = {}
+def build_excel_bytes(df: pd.DataFrame, sheet_name: str):
+    output = io.BytesIO()
+    export_df = df.copy()
+    for col in export_df.columns:
+        if export_df[col].dtype == "object":
+            export_df[col] = export_df[col].fillna("")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        export_df.to_excel(writer, index=False, sheet_name=sheet_name)
+    output.seek(0)
+    return output.getvalue()
 
-if "master_df" not in st.session_state:
-    st.session_state.master_df = pd.DataFrame()
 
-if "mapping_df" not in st.session_state:
-    st.session_state.mapping_df = pd.DataFrame()
+def build_images_zip_bytes(images_dict: dict):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        for photo_ref, data in images_dict.items():
+            if data:
+                zf.writestr(photo_ref, data)
+    output.seek(0)
+    return output.getvalue()
+
+
+init_state()
 
 with st.sidebar:
     st.title("Price Aggregator")
@@ -413,6 +560,7 @@ if page == "Дашборд":
     c3.metric("Связей", len(st.session_state.mapping_df))
 
     st.dataframe(pd.DataFrame(supplier_stats), use_container_width=True)
+    st.info("Фото в финале теперь скрываются: в выгрузке будет внутренний путь вида images/...., а не ссылка на поставщика.")
 
 elif page == "Загрузка прайсов":
     st.title("📥 Загрузка прайсов")
@@ -431,7 +579,6 @@ elif page == "Загрузка прайсов":
         allowed_price_tiers = cfg.get("allowed_price_tiers", ["price"])
         default_price_tier = cfg.get("default_price_tier", "price")
         default_index = allowed_price_tiers.index(default_price_tier) if default_price_tier in allowed_price_tiers else 0
-
         selected_price_tier = st.selectbox(
             "Основная цена",
             allowed_price_tiers,
@@ -441,7 +588,6 @@ elif page == "Загрузка прайсов":
 
     uploaded_file = None
     source_url = ""
-
     if source_type == "file":
         uploaded_file = st.file_uploader("Загрузите файл", type=["xls", "xlsx", "csv"])
     else:
@@ -449,33 +595,40 @@ elif page == "Загрузка прайсов":
 
     if st.button("Обработать прайс"):
         try:
-            if source_type == "file":
-                if uploaded_file is None:
-                    st.warning("Нужно загрузить файл.")
-                    st.stop()
-                raw_df = load_uploaded_file(uploaded_file, cfg["sheet_name"], cfg["header_row"])
-            else:
-                if not source_url.strip():
-                    st.warning("Нужно указать ссылку.")
-                    st.stop()
-                raw_df = load_from_url(source_url.strip(), cfg["sheet_name"], cfg["header_row"])
+            filename, file_bytes = read_source_bytes(source_type, uploaded_file, source_url)
+            raw_df, workbook = load_source_to_df(filename, file_bytes, cfg["sheet_name"], cfg["header_row"])
 
             parsed = parse_supplier(supplier, raw_df)
             parsed = add_normalized_columns(parsed)
             parsed = apply_selected_price_tier(parsed, selected_price_tier)
+            parsed, image_store = attach_images(parsed, supplier, workbook, cfg["header_row"])
 
             st.session_state.offers_by_supplier[supplier] = parsed
+            st.session_state.images_by_supplier[supplier] = image_store
 
             st.success("Прайс обработан.")
             st.dataframe(parsed.head(100), use_container_width=True)
 
-            csv_bytes = parsed.to_csv(index=False).encode("utf-8-sig")
+            normalized_preview = parsed.drop(columns=["__excel_row__"], errors="ignore")
+            excel_bytes = build_excel_bytes(normalized_preview, "normalized")
             st.download_button(
-                "Скачать нормализованный CSV",
-                data=csv_bytes,
-                file_name=f"{supplier}_normalized.csv",
-                mime="text/csv"
+                "Скачать нормализованный Excel",
+                data=excel_bytes,
+                file_name=f"{supplier}_normalized.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
+            if image_store:
+                img_zip = build_images_zip_bytes(image_store)
+                st.download_button(
+                    "Скачать архив фото этого поставщика",
+                    data=img_zip,
+                    file_name=f"{supplier}_images.zip",
+                    mime="application/zip"
+                )
+
+            if supplier == "supplier1":
+                st.warning("У поставщика 1 прямые ссылки на файлы изображений не найдены. В финальном прайсе ссылки поставщика скрываются, но фото для него автоматически не забираются.")
         except Exception as e:
             st.error(f"Ошибка: {e}")
 
@@ -507,24 +660,53 @@ elif page == "Дубли и склейка":
                 st.info("Сомнительных совпадений пока нет.")
             else:
                 st.dataframe(fuzzy_df, use_container_width=True)
+                fuzzy_excel = build_excel_bytes(fuzzy_df, "fuzzy_matches")
+                st.download_button(
+                    "Скачать сомнительные совпадения Excel",
+                    data=fuzzy_excel,
+                    file_name="fuzzy_matches.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
 elif page == "Итоговый прайс":
     st.title("📤 Итоговый прайс")
 
-    master_df = st.session_state.master_df
+    master_df = st.session_state.master_df.copy()
     if master_df.empty:
         st.info("Сначала загрузите прайсы и выполните склейку.")
     else:
-        c1, c2 = st.columns(2)
-        c1.metric("Карточек", len(master_df))
-        c2.metric("С фото", int((master_df["final_image"].fillna("") != "").sum()))
-
-        st.dataframe(master_df, use_container_width=True)
-
-        csv_bytes = master_df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "Скачать итоговый прайс CSV",
-            data=csv_bytes,
-            file_name="final_price_list.csv",
-            mime="text/csv"
+        markup_percent = st.number_input("Наценка, %", min_value=0.0, max_value=1000.0, value=30.0, step=1.0)
+        export_df = master_df.copy()
+        export_df["price_with_markup"] = export_df["final_price"].apply(
+            lambda x: round(float(x) * (1 + markup_percent / 100), 2) if pd.notna(x) else None
         )
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Карточек", len(export_df))
+        c2.metric("С фото", int((export_df["final_image"].fillna("") != "").sum()))
+        c3.metric("Наценка", f"{markup_percent:.0f}%")
+
+        st.dataframe(export_df, use_container_width=True)
+
+        final_excel = build_excel_bytes(export_df, "final_price")
+        st.download_button(
+            "Скачать итоговый Excel",
+            data=final_excel,
+            file_name="final_price_list.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        all_images = {}
+        for supplier_images in st.session_state.images_by_supplier.values():
+            all_images.update(supplier_images)
+
+        if all_images:
+            final_img_zip = build_images_zip_bytes(all_images)
+            st.download_button(
+                "Скачать архив всех скрытых фото",
+                data=final_img_zip,
+                file_name="all_images.zip",
+                mime="application/zip"
+            )
+
+        st.caption("В столбце final_image выгружается скрытый внутренний путь вида images/.... Его можно потом раздавать уже со своего домена или из S3/Cloudflare R2.")
