@@ -17,6 +17,7 @@ SUPPLIERS = {
         "header_row": 7,
         "source_type": "file",
         "default_price_tier": "price",
+        "allowed_price_tiers": ["price"],
     },
     "supplier2": {
         "label": "2. Форвард СПб",
@@ -24,6 +25,7 @@ SUPPLIERS = {
         "header_row": 5,
         "source_type": "file",
         "default_price_tier": "price",
+        "allowed_price_tiers": ["price", "price_opt2", "price_opt3", "price_rrc"],
     },
     "supplier3": {
         "label": "3. Колхозник / Монстр",
@@ -31,6 +33,7 @@ SUPPLIERS = {
         "header_row": 1,
         "source_type": "url",
         "default_price_tier": "price",
+        "allowed_price_tiers": ["price", "price_opt10", "price_opt50"],
     },
     "supplier4": {
         "label": "4. BRATAN",
@@ -38,11 +41,12 @@ SUPPLIERS = {
         "header_row": 0,
         "source_type": "url",
         "default_price_tier": "price",
+        "allowed_price_tiers": ["price", "own_price", "price_rrc"],
     },
 }
 
 PRICE_TIER_LABELS = {
-    "price": "Основная оптовая",
+    "price": "Цена",
     "price_opt2": "Опт 2",
     "price_opt3": "Опт 3",
     "price_opt10": "От 10 шт",
@@ -88,6 +92,12 @@ def normalize_stock(value):
         return None
 
 
+def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
 def normalize_google_sheet_url(url: str) -> str:
     if "docs.google.com/spreadsheets" in url and "/edit" in url:
         return url.split("/edit")[0] + "/export?format=xlsx"
@@ -99,14 +109,17 @@ def load_from_url(url: str, sheet_name, header_row):
     response = requests.get(final_url, timeout=60)
     response.raise_for_status()
     content = io.BytesIO(response.content)
-    return pd.read_excel(content, sheet_name=sheet_name, header=header_row)
+    df = pd.read_excel(content, sheet_name=sheet_name, header=header_row)
+    return clean_columns(df)
 
 
 def load_uploaded_file(uploaded_file, sheet_name, header_row):
     suffix = Path(uploaded_file.name).suffix.lower()
     if suffix == ".csv":
-        return pd.read_csv(uploaded_file)
-    return pd.read_excel(uploaded_file, sheet_name=sheet_name, header=header_row)
+        df = pd.read_csv(uploaded_file)
+    else:
+        df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=header_row)
+    return clean_columns(df)
 
 
 def apply_selected_price_tier(df, selected_tier: str):
@@ -130,9 +143,13 @@ def parse_supplier1(df):
         "фото": "photo",
     }).copy()
 
-    df["supplier_article"] = df["supplier_article"].astype(str).str.strip()
-    df["name"] = df["name"].astype(str).str.strip()
+    if "supplier_article" not in df.columns or "name" not in df.columns:
+        raise ValueError("Не найдены нужные колонки для поставщика 1")
+
+    df["supplier_article"] = df["supplier_article"].fillna("").astype(str).str.strip()
+    df["name"] = df["name"].fillna("").astype(str).str.strip()
     df = df[df["supplier_article"] != ""]
+    df = df[df["name"] != ""]
     df = df[~df["name"].str.startswith("(")]
     df["price"] = df["price"].apply(to_float)
     df["stock"] = None
@@ -154,8 +171,11 @@ def parse_supplier2(df):
         "Цена РРЦ, руб.": "price_rrc",
     }).copy()
 
-    df["supplier_article"] = df["supplier_article"].astype(str).str.strip()
-    df["name"] = df["name"].astype(str).str.strip()
+    if "supplier_article" not in df.columns or "name" not in df.columns:
+        raise ValueError("Не найдены нужные колонки для поставщика 2")
+
+    df["supplier_article"] = df["supplier_article"].fillna("").astype(str).str.strip()
+    df["name"] = df["name"].fillna("").astype(str).str.strip()
     df = df[(df["supplier_article"] != "") & (df["name"] != "")]
     df["stock"] = df["stock"].apply(normalize_stock)
 
@@ -178,7 +198,10 @@ def parse_supplier3(df):
         "Безнал": "payment_note",
     }).copy()
 
-    df["name"] = df["name"].astype(str).str.strip()
+    if "name" not in df.columns:
+        raise ValueError("Не найдена колонка 'Наименование товара' для поставщика 3")
+
+    df["name"] = df["name"].fillna("").astype(str).str.strip()
     df = df[df["name"] != ""]
     df = df[~df["name"].str.contains("WhatsApp|Наличие и актуальные цены", case=False, na=False)]
 
@@ -188,7 +211,7 @@ def parse_supplier3(df):
 
     df["supplier_article"] = ""
     df["stock"] = None
-    df["image_url"] = df["photo"].astype(str).str.strip() if "photo" in df.columns else ""
+    df["image_url"] = df["photo"].fillna("").astype(str).str.strip() if "photo" in df.columns else ""
     df["supplier"] = "supplier3"
     return df[["supplier", "supplier_article", "name", "price", "price_opt10", "price_opt50", "stock", "image_url"]]
 
@@ -207,7 +230,10 @@ def parse_supplier4(df):
         "Изображение": "photo",
     }).copy()
 
-    df["name"] = df["name"].astype(str).str.strip()
+    if "name" not in df.columns:
+        raise ValueError("Не найдена колонка 'Название' для поставщика 4")
+
+    df["name"] = df["name"].fillna("").astype(str).str.strip()
     df = df[df["name"] != ""]
     df["stock"] = df["stock"].apply(normalize_stock)
 
@@ -216,7 +242,7 @@ def parse_supplier4(df):
             df[col] = df[col].apply(to_float)
 
     df["supplier_article"] = ""
-    df["image_url"] = df["photo"].astype(str).str.strip() if "photo" in df.columns else ""
+    df["image_url"] = df["photo"].fillna("").astype(str).str.strip() if "photo" in df.columns else ""
     df["supplier"] = "supplier4"
     return df[["supplier", "supplier_article", "name", "price", "price_rrc", "own_price", "pack_qty", "weight_kg", "stock", "image_url"]]
 
@@ -402,9 +428,14 @@ elif page == "Загрузка прайсов":
     with col1:
         source_type = st.radio("Источник", ["file", "url"], horizontal=True)
     with col2:
+        allowed_price_tiers = cfg.get("allowed_price_tiers", ["price"])
+        default_price_tier = cfg.get("default_price_tier", "price")
+        default_index = allowed_price_tiers.index(default_price_tier) if default_price_tier in allowed_price_tiers else 0
+
         selected_price_tier = st.selectbox(
             "Основная цена",
-            list(PRICE_TIER_LABELS.keys()),
+            allowed_price_tiers,
+            index=default_index,
             format_func=lambda x: PRICE_TIER_LABELS[x]
         )
 
