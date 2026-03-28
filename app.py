@@ -14,7 +14,7 @@ st.set_page_config(page_title="Price Aggregator", layout="wide")
 
 SUPPLIERS = {
     "supplier1": {
-        "label": "1. Velozapчасти",
+        "label": "1. Velozapchasti",
         "sheet_name": "Sheet1",
         "header_row": 7,
         "source_type": "file",
@@ -209,30 +209,33 @@ def attach_images(parsed_df, supplier_key, workbook, header_row):
     parsed_df = parsed_df.copy()
     image_store = {}
 
+    # Supplier 2: do NOT download thousands of images on import.
+    # We only save hidden internal refs and original URLs for later use.
     if supplier_key == "supplier2" and workbook is not None:
         ws = workbook[SUPPLIERS[supplier_key]["sheet_name"]]
         links_map = extract_hyperlinks_map(ws, header_row)
         photo_refs = []
+        source_urls = []
 
         for _, row in parsed_df.iterrows():
             excel_row = int(row.get("__excel_row__", 0))
             url = links_map.get(excel_row, "")
             article = str(row.get("supplier_article", "") or excel_row)
+
+            source_urls.append(url)
+
             if url:
                 ext = safe_ext_from_url(url)
                 photo_ref = build_photo_ref("supplier2", article, ext)
-                if photo_ref not in image_store:
-                    data = download_image_bytes(url)
-                    if data:
-                        image_store[photo_ref] = data
-                photo_refs.append(photo_ref if photo_ref in image_store else "")
+                photo_refs.append(photo_ref)
             else:
                 photo_refs.append("")
 
-        parsed_df["source_image_url"] = [links_map.get(int(r), "") for r in parsed_df["__excel_row__"]]
+        parsed_df["source_image_url"] = source_urls
         parsed_df["photo_ref"] = photo_refs
-        return parsed_df, image_store
+        return parsed_df, {}
 
+    # Suppliers 3 and 4: embedded Excel images can be extracted immediately.
     if supplier_key in ["supplier3", "supplier4"] and workbook is not None:
         ws = workbook[SUPPLIERS[supplier_key]["sheet_name"]]
         img_map = extract_images_map(ws)
@@ -253,6 +256,7 @@ def attach_images(parsed_df, supplier_key, workbook, header_row):
         parsed_df["photo_ref"] = photo_refs
         return parsed_df, image_store
 
+    # Supplier 1 and fallback.
     parsed_df["source_image_url"] = parsed_df.get("image_url", "")
     parsed_df["photo_ref"] = ""
     return parsed_df, image_store
@@ -629,6 +633,9 @@ elif page == "Загрузка прайсов":
 
             if supplier == "supplier1":
                 st.warning("У поставщика 1 прямые ссылки на файлы изображений не найдены. В финальном прайсе ссылки поставщика скрываются, но фото для него автоматически не забираются.")
+            if supplier == "supplier2":
+                st.info("Для Форвард СПб фото не скачиваются во время импорта, чтобы приложение не зависало. Внутренние скрытые пути создаются, а сами изображения лучше забирать отдельно по необходимости.")
+
         except Exception as e:
             st.error(f"Ошибка: {e}")
 
