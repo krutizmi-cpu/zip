@@ -3,6 +3,7 @@ import zipfile
 import hashlib
 from pathlib import Path
 
+import boto3
 import pandas as pd
 import requests
 import streamlit as st
@@ -209,8 +210,6 @@ def attach_images(parsed_df, supplier_key, workbook, header_row):
     parsed_df = parsed_df.copy()
     image_store = {}
 
-    # Supplier 2: do NOT download thousands of images on import.
-    # We only save hidden internal refs and original URLs for later use.
     if supplier_key == "supplier2" and workbook is not None:
         ws = workbook[SUPPLIERS[supplier_key]["sheet_name"]]
         links_map = extract_hyperlinks_map(ws, header_row)
@@ -235,7 +234,6 @@ def attach_images(parsed_df, supplier_key, workbook, header_row):
         parsed_df["photo_ref"] = photo_refs
         return parsed_df, {}
 
-    # Suppliers 3 and 4: embedded Excel images can be extracted immediately.
     if supplier_key in ["supplier3", "supplier4"] and workbook is not None:
         ws = workbook[SUPPLIERS[supplier_key]["sheet_name"]]
         img_map = extract_images_map(ws)
@@ -256,7 +254,6 @@ def attach_images(parsed_df, supplier_key, workbook, header_row):
         parsed_df["photo_ref"] = photo_refs
         return parsed_df, image_store
 
-    # Supplier 1 and fallback.
     parsed_df["source_image_url"] = parsed_df.get("image_url", "")
     parsed_df["photo_ref"] = ""
     return parsed_df, image_store
@@ -534,13 +531,106 @@ def build_images_zip_bytes(images_dict: dict):
     return output.getvalue()
 
 
+def has_r2_config():
+    required = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL"]
+    return all(key in st.secrets for key in required)
+
+
+def get_r2_client():
+    return boto3.client(
+        service_name="s3",
+        endpoint_url=f"https://{st.secrets['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+        aws_access_key_id=st.secrets["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=st.secrets["R2_SECRET_ACCESS_KEY"],
+        region_name="auto",
+    )
+
+
+def upload_bytes_to_r2(key: str, data: bytes, content_type: str = "application/octet-stream"):
+    s3 = get_r2_client()
+    s3.put_object(
+        Bucket=st.secrets["R2_BUCKET_NAME"],
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+    )
+    return f"{st.secrets['R2_PUBLIC_BASE_URL'].rstrip('/')}/{key}"
+
+
+def guess_content_type(key: str) -> str:
+    key = key.lower()
+    if key.endswith(".png"):
+        return "image/png"
+    if key.endswith(".webp"):
+        return "image/webp"
+    if key.endswith(".jpeg") or key.endswith(".jpg"):
+        return "image/jpeg"
+    return "application/octet-stream"
+
+
+def upload_final_images_to_r2(export_df: pd.DataFrame, offers_by_supplier: dict, images_by_supplier: dict):
+    export_df = export_df.copy()
+    uploaded_map = {}
+
+    if not has_r2_config():
+        raise ValueError("R2 secrets не настроены в Streamlit.")
+
+    # 1) Upload images already extracted into memory (suppliers 3 and 4)
+    in_memory = {}
+    for supplier_images in images_by_supplier.values():
+        in_memory.update(supplier_images)
+
+    # 2) Build lookup for source supplier image URLs (supplier 2)
+    source_lookup = {}
+    for supplier_key, df in offers_by_supplier.items():
+        if df is None or df.empty:
+            continue
+        for _, row in df.iterrows():
+            photo_ref = str(row.get("photo_ref", "") or "")
+            source_url = str(row.get("source_image_url", "") or "")
+            if photo_ref and source_url and photo_ref not in source_lookup:
+                source_lookup[photo_ref] = source_url
+
+    final_urls = []
+    for _, row in export_df.iterrows():
+        key = str(row.get("final_image", "") or "").strip()
+        if not key:
+            final_urls.append("")
+            continue
+
+        if key in uploaded_map:
+            final_urls.append(uploaded_map[key])
+            continue
+
+        data = in_memory.get(key)
+        if data:
+            public_url = upload_bytes_to_r2(key, data, guess_content_type(key))
+            uploaded_map[key] = public_url
+            final_urls.append(public_url)
+            continue
+
+        source_url = source_lookup.get(key, "")
+        if source_url:
+            data = download_image_bytes(source_url)
+            if data:
+                public_url = upload_bytes_to_r2(key, data, guess_content_type(key))
+                uploaded_map[key] = public_url
+                final_urls.append(public_url)
+                continue
+
+        final_urls.append("")
+
+    export_df["final_image_public_url"] = final_urls
+    return export_df
+
+
 init_state()
 
 with st.sidebar:
     st.title("Price Aggregator")
     page = st.radio(
         "Раздел",
-        ["Дашборд", "Загрузка прайсов", "Дубли и склейка", "Итоговый прайс"]
+        ["Дашборд", "Загрузка прайсов", "Дубли и склейка", "Итоговый прайс", "R2"]
     )
 
 if page == "Дашборд":
@@ -564,7 +654,7 @@ if page == "Дашборд":
     c3.metric("Связей", len(st.session_state.mapping_df))
 
     st.dataframe(pd.DataFrame(supplier_stats), use_container_width=True)
-    st.info("Фото в финале теперь скрываются: в выгрузке будет внутренний путь вида images/...., а не ссылка на поставщика.")
+    st.info("Можно оставить public R2 URL и не подключать свой домен. Это нормально для старта.")
 
 elif page == "Загрузка прайсов":
     st.title("📥 Загрузка прайсов")
@@ -631,11 +721,8 @@ elif page == "Загрузка прайсов":
                     mime="application/zip"
                 )
 
-            if supplier == "supplier1":
-                st.warning("У поставщика 1 прямые ссылки на файлы изображений не найдены. В финальном прайсе ссылки поставщика скрываются, но фото для него автоматически не забираются.")
             if supplier == "supplier2":
-                st.info("Для Форвард СПб фото не скачиваются во время импорта, чтобы приложение не зависало. Внутренние скрытые пути создаются, а сами изображения лучше забирать отдельно по необходимости.")
-
+                st.info("Для Форвард СПб фото не скачиваются во время импорта. Они будут загружены в R2 только для финальных товаров.")
         except Exception as e:
             st.error(f"Ошибка: {e}")
 
@@ -688,10 +775,26 @@ elif page == "Итоговый прайс":
             lambda x: round(float(x) * (1 + markup_percent / 100), 2) if pd.notna(x) else None
         )
 
+        auto_upload = st.checkbox("Автоматически загрузить фото в R2 перед выгрузкой", value=False)
+
         c1, c2, c3 = st.columns(3)
         c1.metric("Карточек", len(export_df))
         c2.metric("С фото", int((export_df["final_image"].fillna("") != "").sum()))
         c3.metric("Наценка", f"{markup_percent:.0f}%")
+
+        if auto_upload:
+            if has_r2_config():
+                try:
+                    export_df = upload_final_images_to_r2(
+                        export_df,
+                        st.session_state.offers_by_supplier,
+                        st.session_state.images_by_supplier,
+                    )
+                    st.success("Фото загружены в R2. В финале есть публичные ссылки.")
+                except Exception as e:
+                    st.error(f"Ошибка загрузки фото в R2: {e}")
+            else:
+                st.warning("R2 secrets не настроены. Открой вкладку R2.")
 
         st.dataframe(export_df, use_container_width=True)
 
@@ -703,17 +806,22 @@ elif page == "Итоговый прайс":
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        all_images = {}
-        for supplier_images in st.session_state.images_by_supplier.values():
-            all_images.update(supplier_images)
+elif page == "R2":
+    st.title("☁️ R2")
+    st.write("Для автоматической загрузки фото в R2 приложение должно получить 5 секретов через Streamlit Cloud Settings → Secrets.")
 
-        if all_images:
-            final_img_zip = build_images_zip_bytes(all_images)
-            st.download_button(
-                "Скачать архив всех скрытых фото",
-                data=final_img_zip,
-                file_name="all_images.zip",
-                mime="application/zip"
-            )
+    st.code(
+"""R2_ACCOUNT_ID = "ваш_account_id"
+R2_ACCESS_KEY_ID = "ваш_access_key_id"
+R2_SECRET_ACCESS_KEY = "ваш_secret_access_key"
+R2_BUCKET_NAME = "images"
+R2_PUBLIC_BASE_URL = "https://pub-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.r2.dev" """,
+        language="toml"
+    )
 
-        st.caption("В столбце final_image выгружается скрытый внутренний путь вида images/.... Его можно потом раздавать уже со своего домена или из S3/Cloudflare R2.")
+    if has_r2_config():
+        st.success("R2 secrets настроены.")
+        st.write("Bucket:", st.secrets["R2_BUCKET_NAME"])
+        st.write("Public URL:", st.secrets["R2_PUBLIC_BASE_URL"])
+    else:
+        st.warning("R2 secrets пока не заданы.")
