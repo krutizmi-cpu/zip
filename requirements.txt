@@ -5,3 +5,4 @@ openpyxl
 rapidfuzz
 xlrd==2.0.1
 boto3
+botocore
