@@ -3,3 +3,4 @@ pandas
 requests
 openpyxl
 rapidfuzz
+xlrd==2.0.1
