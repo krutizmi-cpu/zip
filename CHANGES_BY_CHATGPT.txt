@@ -1,0 +1,5 @@
+Changes applied:
+1. Final price Excel columns reordered and renamed.
+2. final_image removed from final export.
+3. Improved category and subcategory inference.
+4. Added visible markers in app.py: UPDATED BY CHATGPT.
