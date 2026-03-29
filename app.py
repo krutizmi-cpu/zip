@@ -216,6 +216,20 @@ def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
+def is_complete_bike(norm: str) -> bool:
+    if not norm:
+        return False
+    bike_keywords = [
+        "велосипед", "bike", "bmx", "mtb", "шоссейн", "горный велосипед",
+        "детский велосипед", "складной велосипед", "электровелосипед", "e-bike", "ebike"
+    ]
+    exclude_keywords = [
+        "рама", "колес", "покрыш", "камера", "цеп", "кассет", "переключател",
+        "тормоз", "седл", "вилка", "руль", "манетк", "багажник", "крыл", "фонарь",
+        "поднож", "насос", "сумк", "фляг", "флягодерж", "замок", "зеркал"
+    ]
+    return any(k in norm for k in bike_keywords) and not any(k in norm for k in exclude_keywords)
+
 def infer_categories(name: str):
     raw = str(name or "")
     norm = f" {normalize_name(raw)} "
