@@ -26,28 +26,75 @@ PRICE_TIER_LABELS = {
     "price_opt10": "От 10 шт", "price_opt50": "От 50 шт", "own_price": "Своим", "price_rrc": "РРЦ",
 }
 
+
 CATEGORY_RULES = [
-    ("Велосипеды", ["велосипед", "электровелосипед", "байк", "bmx", "bike"]),
-    ("Колёса и покрышки", ["колесо", "обод", "втулк", "спиц", "покрыш", "камера", "шина", "wheel", "rim"]),
-    ("Тормоза", ["тормоз", "колодк", "диск тормоз", "ротор", "brake"]),
-    ("Трансмиссия", ["цепь", "кассет", "трещот", "переключател", "звезд", "шатун", "каретк", "педал", "chain"]),
-    ("Рули и управление", ["руль", "вынос", "грипс", "манетк", "ручк", "handlebar"]),
-    ("Седла и подседелы", ["седл", "подседел", "хомут подсед", "seatpost"]),
-    ("Вилки и амортизация", ["вилка", "амортиз", "fork", "shock"]),
-    ("Освещение и электрика", ["фонарь", "фара", "свет", "контроллер", "дисплей", "мотор", "мотор-колес", "электро", "кабель"]),
-    ("Аккумуляторы и зарядка", ["аккумулятор", "акб", "зарядн", "charger", "battery", "lifepo4"]),
-    ("Запчасти и аксессуары", ["крыл", "багажник", "поднож", "зеркал", "крепеж", "замок", "болт", "гайк", "проставка"]),
+    ("Аккумуляторы", [r"\bакб\b", r"аккум", r"аккумулятор", r"battery", r"li[- ]?ion", r"lifepo4", r"литиев", r"батаре"]),
+    ("Зарядные устройства", [r"зарядн", r"зарядка", r"charger", r"блок питания"]),
+    ("Моторы", [r"мотор[- ]?колес", r"мотор колес", r"мотор", r"электромотор", r"hub motor", r"редукторн.*мотор"]),
+    ("Контроллеры", [r"контроллер", r"controller", r"синусн"]),
+    ("Дисплеи и панели управления", [r"\blcd\b", r"\bled\b", r"\boled\b", r"диспле", r"экран", r"панел[ьи] управ", r"бортов[а-я ]*комп"]),
+    ("Кабели и разъёмы", [r"кабель", r"провод", r"разъ[её]м", r"коннектор", r"connector", r"adapter", r"адаптер", r"переходник"]),
+    ("Колёса", [r"колесо", r"wheelset", r"wheel"]),
+    ("Покрышки", [r"покрыш", r"шина", r"tire", r"tyre"]),
+    ("Камеры", [r"камера", r"tube", r"innertube"]),
+    ("Обода и спицы", [r"обод", r"спиц", r"rim", r"spoke"]),
+    ("Втулки", [r"втулк", r"hub"]),
+    ("Тормоза", [r"тормоз", r"brake", r"гидролини", r"тормозн ручк"]),
+    ("Тормозные колодки", [r"колодк", r"brake pad", r"\bpad\b"]),
+    ("Роторы", [r"ротор", r"диск тормоз", r"rotor", r"disc brake"]),
+    ("Цепи", [r"цепь", r"chain"]),
+    ("Кассеты и трещотки", [r"кассет", r"трещот", r"freewheel", r"cassette"]),
+    ("Звёзды", [r"зв[её]зд", r"chainring", r"sprocket"]),
+    ("Шатуны и каретки", [r"шатун", r"каретк", r"crank", r"bottom bracket"]),
+    ("Педали", [r"педал", r"pedal"]),
+    ("Переключатели", [r"переключател", r"derailleur"]),
+    ("Манетки", [r"манетк", r"gripshift", r"trigger", r"шифтер", r"shifter"]),
+    ("Рули", [r"руль", r"handlebar"]),
+    ("Выносы", [r"вынос", r"stem"]),
+    ("Грипсы", [r"грипс", r"grip", r"ручк[аи] руля"]),
+    ("Седла", [r"седл", r"saddle"]),
+    ("Подседельные штыри", [r"подседел", r"seatpost"]),
+    ("Хомуты", [r"хомут", r"clamp"]),
+    ("Вилки", [r"вилка", r"fork"]),
+    ("Амортизаторы", [r"амортиз", r"shock", r"suspension"]),
+    ("Фары и фонари", [r"фонар", r"фара", r"light", r"lamp"]),
+    ("Крылья", [r"крыл", r"fender", r"mudguard"]),
+    ("Багажники", [r"багажник", r"rack", r"carrier"]),
+    ("Подножки", [r"поднож", r"kickstand", r"stand"]),
+    ("Зеркала", [r"зеркал", r"mirror"]),
+    ("Замки", [r"замок", r"lock"]),
+    ("Крепёж", [r"болт", r"гайк", r"винт", r"крепеж", r"шайб", r"screw", r"nut", r"bolt"]),
+    ("Инструменты", [r"инструмент", r"ключ", r"съ[её]мник", r"tool", r"wrench"]),
+    ("Смазки и химия", [r"смазк", r"масло", r"lubric", r"grease", r"oil", r"очистит"]),
+    ("Защита", [r"шлем", r"защит", r"налокот", r"наколен", r"helmet"]),
+    ("Сумки и флягодержатели", [r"сумк", r"рюкзак", r"флягодерж", r"bottle cage", r"bag"]),
+    ("Велосипеды", [r"электровелосипед", r"велосипед", r"\bbmx\b", r"\bbike\b", r"e-bike", r"ebike"]),
+]
+
+CATEGORY_PRIORITY = [
+    "Аккумуляторы", "Зарядные устройства", "Моторы", "Контроллеры",
+    "Дисплеи и панели управления", "Кабели и разъёмы",
+    "Тормозные колодки", "Роторы", "Тормоза",
+    "Покрышки", "Камеры", "Колёса", "Обода и спицы", "Втулки",
+    "Цепи", "Кассеты и трещотки", "Звёзды", "Шатуны и каретки",
+    "Переключатели", "Манетки", "Педали",
+    "Рули", "Выносы", "Грипсы", "Седла", "Подседельные штыри", "Хомуты",
+    "Вилки", "Амортизаторы",
+    "Фары и фонари", "Крылья", "Багажники", "Подножки", "Зеркала", "Замки",
+    "Крепёж", "Инструменты", "Смазки и химия", "Защита", "Сумки и флягодержатели", "Велосипеды",
 ]
 
 DIAMETER_PATTERNS = [
-    (r"\b(12|14|16|18|20|24|26|27\.5|28|29)\b", "Диаметр"),
-    (r"\b(12|14|16|18|20|24|26|27\.5|28|29)''", "Диаметр"),
-    (r"\b(12|14|16|18|20|24|26|27\.5|28|29)д", "Диаметр"),
+    (r"\b(12|14|16|18|20|24|26|27[\.,]5|28|29)\b", "Диаметр"),
+    (r"\b(12|14|16|18|20|24|26|27[\.,]5|28|29)(?:\"|''|”)?\b", "Диаметр"),
+    (r"\b(12|14|16|18|20|24|26|27[\.,]5|28|29)д\b", "Диаметр"),
 ]
 
 VOLTAGE_RE = re.compile(r"\b(24|36|48|52|60|72)\s*v\b", re.I)
-AH_RE = re.compile(r"\b(\d{1,2}(?:\.\d+)?)\s*ah\b", re.I)
-WATT_RE = re.compile(r"\b(\d{2,5})\s*ват", re.I)
+AH_RE = re.compile(r"\b(\d{1,2}(?:[\.,]\d+)?)\s*ah\b", re.I)
+WATT_RE = re.compile(r"\b(\d{2,5})\s*(?:ват|w)\b", re.I)
+ROTOR_MM_RE = re.compile(r"\b(140|160|180|203|220)\s*мм\b", re.I)
+SPEED_RE = re.compile(r"\b(6|7|8|9|10|11|12)\s*(?:скор|sp|ск)\b", re.I)
 CACHE_DB = Path("photo_cache.db")
 
 def init_state():
@@ -172,46 +219,178 @@ def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
+
+def _clean_numeric_token(value: str) -> str:
+    value = str(value or "").replace(",", ".").strip()
+    if value.endswith(".0"):
+        value = value[:-2]
+    return value
+
+def _detect_primary_category(norm: str) -> str:
+    matched = []
+    for category, patterns in CATEGORY_RULES:
+        if any(re.search(pattern, norm, re.I) for pattern in patterns):
+            matched.append(category)
+    for category in CATEGORY_PRIORITY:
+        if category in matched:
+            return category
+    return "Прочее"
+
+def _extract_diameter(norm: str):
+    for pattern, _ in DIAMETER_PATTERNS:
+        m = re.search(pattern, norm, re.I)
+        if m:
+            return _clean_numeric_token(m.group(1))
+    return None
+
+def _subcategory_for_wheels(norm: str, base_label: str):
+    diameter = _extract_diameter(norm)
+    if diameter:
+        return f'{base_label} {diameter}"'
+    return base_label
+
+def _subcategory_for_battery(norm: str, specs: dict):
+    parts = []
+    if specs.get("voltage"):
+        parts.append(f"{_clean_numeric_token(specs['voltage'])}V")
+    if specs.get("ah"):
+        parts.append(f"{_clean_numeric_token(specs['ah'])}Ah")
+    if parts:
+        return " ".join(parts)
+    if "lifepo4" in norm:
+        return "LiFePO4"
+    if re.search(r"li[- ]?ion", norm, re.I):
+        return "Li-ion"
+    return "Аккумуляторы"
+
+def _subcategory_for_charger(norm: str, specs: dict):
+    if specs.get("voltage"):
+        return f"Для {_clean_numeric_token(specs['voltage'])}V"
+    return "Зарядные устройства"
+
+def _subcategory_for_motor(norm: str, specs: dict):
+    parts = []
+    diameter = _extract_diameter(norm)
+    if diameter:
+        parts.append(f'{diameter}"')
+    if specs.get("watt"):
+        parts.append(f"{_clean_numeric_token(specs['watt'])}W")
+    if parts:
+        return " ".join(parts)
+    return "Моторы"
+
+def _subcategory_for_rotor(norm: str):
+    m = ROTOR_MM_RE.search(norm)
+    if m:
+        return f"{m.group(1)} мм"
+    return "Роторы"
+
+def _subcategory_for_transmission(norm: str, fallback: str):
+    m = SPEED_RE.search(norm)
+    if m:
+        return f"{m.group(1)}-скоростная"
+    return fallback
+
 def infer_categories(name: str):
     norm = normalize_name(name)
-    category_l1 = "Прочее"
+    specs = extract_specs(norm)
+    category_l1 = _detect_primary_category(norm)
     category_l2 = ""
-    for cat, keywords in CATEGORY_RULES:
-        if any(keyword in norm for keyword in keywords):
-            category_l1 = cat
-            break
-    if category_l1 == "Колёса и покрышки":
-        for pattern, _ in DIAMETER_PATTERNS:
-            m = re.search(pattern, norm)
-            if m:
-                category_l2 = f"Диаметр {m.group(1)}"
-                break
-        if not category_l2:
-            if "покрыш" in norm: category_l2 = "Покрышки"
-            elif "камера" in norm: category_l2 = "Камеры"
-            elif "обод" in norm: category_l2 = "Обода"
-            elif "втулк" in norm: category_l2 = "Втулки"
-            else: category_l2 = "Разное"
-    elif category_l1 == "Аккумуляторы и зарядка":
-        specs = extract_specs(norm)
-        if specs["voltage"] and specs["ah"]:
-            category_l2 = f"{specs['voltage']}V {specs['ah']}Ah"
-        elif "аккумулятор" in norm or "акб" in norm or "battery" in norm:
-            category_l2 = "Аккумуляторы"
-        elif "заряд" in norm or "charger" in norm:
-            category_l2 = "Зарядные устройства"
+
+    if category_l1 == "Колёса":
+        category_l2 = _subcategory_for_wheels(norm, "Диаметр")
+    elif category_l1 == "Покрышки":
+        category_l2 = _subcategory_for_wheels(norm, "Диаметр")
+    elif category_l1 == "Камеры":
+        category_l2 = _subcategory_for_wheels(norm, "Диаметр")
+    elif category_l1 == "Обода и спицы":
+        if "обод" in norm:
+            category_l2 = _subcategory_for_wheels(norm, "Обод")
+        elif "спиц" in norm:
+            category_l2 = "Спицы"
+        else:
+            category_l2 = "Обода и спицы"
+    elif category_l1 == "Аккумуляторы":
+        category_l2 = _subcategory_for_battery(norm, specs)
+    elif category_l1 == "Зарядные устройства":
+        category_l2 = _subcategory_for_charger(norm, specs)
+    elif category_l1 == "Моторы":
+        category_l2 = _subcategory_for_motor(norm, specs)
+    elif category_l1 == "Контроллеры":
+        if specs.get("voltage"):
+            category_l2 = f"{_clean_numeric_token(specs['voltage'])}V"
+        else:
+            category_l2 = "Контроллеры"
+    elif category_l1 == "Дисплеи и панели управления":
+        if "lcd" in norm:
+            category_l2 = "LCD"
+        elif "led" in norm:
+            category_l2 = "LED"
+        else:
+            category_l2 = "Дисплеи"
+    elif category_l1 == "Кабели и разъёмы":
+        if "удлин" in norm:
+            category_l2 = "Удлинители"
+        elif "переход" in norm or "adapter" in norm or "адаптер" in norm:
+            category_l2 = "Переходники"
+        else:
+            category_l2 = "Кабели и разъёмы"
     elif category_l1 == "Тормоза":
-        if "колодк" in norm: category_l2 = "Колодки"
-        elif "ротор" in norm or "диск тормоз" in norm: category_l2 = "Роторы"
-        else: category_l2 = "Тормоза"
-    elif category_l1 == "Трансмиссия":
-        if "цепь" in norm: category_l2 = "Цепи"
-        elif "кассет" in norm or "трещот" in norm: category_l2 = "Кассеты и трещотки"
-        elif "звезд" in norm: category_l2 = "Звезды"
-        else: category_l2 = "Разное"
+        if "гидравл" in norm:
+            category_l2 = "Гидравлические"
+        elif "механ" in norm:
+            category_l2 = "Механические"
+        else:
+            category_l2 = "Тормоза"
+    elif category_l1 == "Тормозные колодки":
+        category_l2 = "Колодки"
+    elif category_l1 == "Роторы":
+        category_l2 = _subcategory_for_rotor(norm)
+    elif category_l1 == "Цепи":
+        category_l2 = _subcategory_for_transmission(norm, "Цепи")
+    elif category_l1 == "Кассеты и трещотки":
+        category_l2 = _subcategory_for_transmission(norm, "Кассеты и трещотки")
+    elif category_l1 == "Звёзды":
+        m = re.search(r"\b(28|30|32|34|36|38|40|42|44|46|48|50|52)t\b", norm, re.I)
+        category_l2 = f"{m.group(1)}T" if m else "Звёзды"
+    elif category_l1 == "Шатуны и каретки":
+        if "каретк" in norm or "bottom bracket" in norm:
+            category_l2 = "Каретки"
+        elif "шатун" in norm or "crank" in norm:
+            category_l2 = "Шатуны"
+        else:
+            category_l2 = "Шатуны и каретки"
+    elif category_l1 == "Переключатели":
+        if "задн" in norm:
+            category_l2 = "Задние"
+        elif "передн" in norm:
+            category_l2 = "Передние"
+        else:
+            category_l2 = "Переключатели"
+    elif category_l1 == "Манетки":
+        category_l2 = _subcategory_for_transmission(norm, "Манетки")
+    elif category_l1 == "Рули":
+        category_l2 = "Рули"
+    elif category_l1 == "Вилки":
+        category_l2 = _subcategory_for_wheels(norm, "Диаметр")
+    elif category_l1 == "Амортизаторы":
+        category_l2 = "Амортизаторы"
+    elif category_l1 == "Фары и фонари":
+        if "задн" in norm:
+            category_l2 = "Задние"
+        elif "перед" in norm or "фара" in norm:
+            category_l2 = "Передние"
+        else:
+            category_l2 = "Фары и фонари"
     elif category_l1 == "Велосипеды":
-        category_l2 = "Электровелосипеды" if "электровелосипед" in norm else "Велосипеды"
+        if "электро" in norm or "e-bike" in norm or "ebike" in norm:
+            category_l2 = "Электровелосипеды"
+        else:
+            category_l2 = _subcategory_for_wheels(norm, "Диаметр")
+    else:
+        category_l2 = category_l1 if category_l1 != "Прочее" else ""
     return category_l1, category_l2
+
 
 def normalize_google_sheet_url(url: str) -> str:
     if "docs.google.com/spreadsheets" in url and "/edit" in url:
@@ -545,16 +724,38 @@ def build_master(offers_df):
         mapping_df = mapping_df.sort_values(["match_method", "confidence"], ascending=[True, False]).reset_index(drop=True)
     return master_df, mapping_df
 
+
 def build_excel_bytes(df: pd.DataFrame, sheet_name: str):
     output = io.BytesIO()
     export_df = df.copy()
+
+    if sheet_name == "final_price":
+        export_df = pd.DataFrame({
+            "ID": export_df.get("master_id", ""),
+            "Артикул": export_df.get("article", ""),
+            "Наименование": export_df.get("normalized_name", export_df.get("name", "")),
+            "Категория": export_df.get("category_l1", ""),
+            "Подкатегория": export_df.get("category_l2", ""),
+            "Закупка": export_df.get("final_price", ""),
+            "Наличие": export_df.get("final_stock", ""),
+            "Цена Оптовая": export_df.get("price_with_markup", ""),
+            "Ссылка на фото": export_df.get("final_image_public_url", ""),
+        })
+
     for col in export_df.columns:
         if export_df[col].dtype == "object":
             export_df[col] = export_df[col].fillna("")
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         export_df.to_excel(writer, index=False, sheet_name=sheet_name)
+        ws = writer.book[sheet_name]
+        ws.freeze_panes = "A2"
+        for column_cells in ws.columns:
+            values = [str(cell.value) if cell.value is not None else "" for cell in column_cells]
+            max_len = min(max((len(v) for v in values), default=0) + 2, 60)
+            ws.column_dimensions[column_cells[0].column_letter].width = max_len
     output.seek(0)
     return output.getvalue()
+
 
 def has_r2_config():
     required = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME", "R2_PUBLIC_BASE_URL"]
