@@ -1,4 +1,3 @@
-# UPDATED BY CHATGPT: stable photo-cache + final export columns + better categorization
 import io
 import re
 import sqlite3
@@ -14,6 +13,7 @@ from rapidfuzz import fuzz
 from openpyxl import load_workbook
 
 st.set_page_config(page_title="Price Aggregator", layout="wide")
+# UPDATED BY CHATGPT: fixed photo links + better categorization + stable photo keys
 
 SUPPLIERS = {
     "s1": {"label": "1. Velozapchasti", "sheet_name": "Sheet1", "header_row": 7, "source_type": "file", "default_price_tier": "price", "allowed_price_tiers": ["price"]},
@@ -27,58 +27,58 @@ PRICE_TIER_LABELS = {
     "price_opt10": "От 10 шт", "price_opt50": "От 50 шт", "own_price": "Своим", "price_rrc": "РРЦ",
 }
 
+
 CATEGORY_RULES = [
-    ("Аккумуляторы", ["аккумулятор", "акб", "battery", "lifepo4", "li-ion", "li ion", "литиев", "батарея"]),
-    ("Зарядные устройства", ["зарядн", "зарядка", "charger", "адаптер питания"]),
-    ("Моторы", ["мотор-колес", "мотор колес", "мотор-втулк", "hub motor", "mid drive", "редукторный мотор", "мотор"]),
-    ("Контроллеры", ["контроллер", "controller", "синусный", "wave controller"]),
-    ("Дисплеи", ["дисплей", "display", "lcd", "led", "панель управления"]),
-    ("Кабели и разъёмы", ["кабель", "провод", "разъём", "разъем", "коннектор", "connector", "wire", "cable", "удлинитель"]),
-    ("Велосипеды", ["велосипед", "электровелосипед", "байк", "bmx", "bike", "e-bike", "ebike"]),
-    ("Колёса", ["колесо", "wheelset", "wheel"]),
-    ("Покрышки", ["покрыш", "шина", "tire", "tyre"]),
+    ("Аккумуляторы", ["аккумулятор", "акб", "battery", "lifepo4", "литиев", "li-ion", "li ion"]),
+    ("Зарядные устройства", ["зарядн", "charger", "блок питания"]),
+    ("Контроллеры", ["контроллер"]),
+    ("Дисплеи", ["дисплей", "display", "lcd", "led панель", "панель управления"]),
+    ("Моторы", ["мотор-колес", "мотор колес", "мотор-втулк", "электромотор", "мотор", "двигател"]),
+    ("Кабели и разъёмы", ["кабель", "провод", "разъём", "разъем", "connector", "коннектор", "штекер", "коса"]),
+    ("Покрышки", ["покрыш", "шина", "tire"]),
     ("Камеры", ["камера", "tube", "innertube"]),
-    ("Обода и спицы", ["обод", "спиц", "rim", "spoke"]),
+    ("Колёса", ["колесо в сборе", "wheelset", "вилсет", "wheel"]),
+    ("Обода и спицы", ["обод", "ободная лента", "спиц", "ниппель спицы", "rim", "spoke"]),
     ("Втулки", ["втулк", "hub"]),
-    ("Тормоза", ["тормоз", "brake", "гидравлик", "механический тормоз"]),
-    ("Тормозные колодки", ["колодк", "brake pad", "pad set"]),
-    ("Роторы", ["ротор", "диск тормоз", "rotor", "disc brake rotor"]),
+    ("Тормозные колодки", ["колодк", "brake pad"]),
+    ("Роторы", ["ротор", "диск тормоз", "disc rotor", "rotor"]),
+    ("Тормоза", ["тормоз", "brake", "гидролиния", "калипер"]),
     ("Цепи", ["цепь", "chain"]),
-    ("Кассеты и трещотки", ["кассет", "трещот", "cassette", "freewheel"]),
-    ("Звёзды", ["звезд", "sprocket", "chainring", "передняя звезд"]),
+    ("Кассеты и трещотки", ["кассет", "трещот", "freewheel", "cassette"]),
+    ("Звёзды", ["звезд", "chainring", "sprocket"]),
     ("Шатуны и каретки", ["шатун", "каретк", "crank", "bottom bracket"]),
     ("Педали", ["педал", "pedal"]),
     ("Переключатели", ["переключател", "derailleur"]),
-    ("Манетки", ["манетк", "gripshift", "trigger shifter", "шифтер"]),
-    ("Рули", ["руль", "handlebar", "guidon"]),
+    ("Манетки", ["манетк", "грипшифт", "gripshift", "шифтер", "shifter"]),
+    ("Рули", ["руль", "handlebar"]),
     ("Выносы", ["вынос", "stem"]),
-    ("Грипсы", ["грипс", "grip", "ручк руля"]),
+    ("Грипсы", ["грипс", "grip", "ручки руля"]),
     ("Седла", ["седл", "saddle"]),
-    ("Подседельные штыри", ["подседел", "seatpost", "подседельный"]),
+    ("Подседельные штыри", ["подседел", "seatpost"]),
     ("Хомуты", ["хомут", "clamp"]),
     ("Вилки", ["вилка", "fork"]),
-    ("Амортизаторы", ["амортиз", "shock", "suspension"]),
-    ("Освещение", ["фонарь", "фара", "свет", "light", "lamp"]),
+    ("Амортизаторы", ["амортиз", "shock", "damper"]),
     ("Крылья", ["крыл", "fender", "mudguard"]),
     ("Багажники", ["багажник", "rack", "carrier"]),
     ("Подножки", ["поднож", "kickstand", "stand"]),
     ("Зеркала", ["зеркал", "mirror"]),
     ("Замки", ["замок", "lock"]),
-    ("Крепёж", ["болт", "гайк", "винт", "крепеж", "проставка", "washer", "bolt", "nut", "screw"]),
-    ("Инструменты", ["ключ", "отвёртк", "отвертк", "инструмент", "tool", "wrench"]),
-    ("Смазки и химия", ["смазк", "масло", "lubric", "grease", "oil"]),
-    ("Защита", ["шлем", "налокотник", "наколенник", "защит", "helmet"]),
-    ("Сумки и флягодержатели", ["сумк", "рюкзак", "флягодерж", "bottle cage", "bag"]),
-    ("Аксессуары", ["аксессуар", "велокомпьютер", "одометр", "звонок", "держатель телефона"]),
+    ("Освещение", ["фонарь", "фара", "свет", "light", "lamp"]),
+    ("Инструменты", ["ключ", "отвертк", "отвёртк", "съемник", "съёмник", "tool", "wrench", "шестигран"]),
+    ("Смазки и химия", ["смазк", "масло", "герметик", "очиститель", "lubric", "grease", "oil"]),
+    ("Защита", ["шлем", "налокотник", "наколенник", "защит", "helmet", "перчатки", "glove"]),
+    ("Сумки и флягодержатели", ["сумк", "рюкзак", "флягодерж", "bottle cage", "bag", "бутылоч", "фляга"]),
+    ("Крепёж", ["болт", "гайк", "винт", "шайб", "крепеж", "крепёж", "проставка", "washer", "bolt", "nut", "screw"]),
 ]
 
-DIAMETER_RE = re.compile(r'(?<!\d)(12|14|16|18|20|24|26|27(?:[\.,]5)?|28|29)\s*(?:"|\'\'|д|inch|in)?', re.I)
-VOLTAGE_RE = re.compile(r'\b(24|36|48|52|60|72)\s*v\b', re.I)
-AH_RE = re.compile(r'\b(\d{1,2}(?:[\.,]\d+)?)\s*ah\b', re.I)
-WATT_RE = re.compile(r'\b(\d{2,5})\s*(?:ватт?|w)\b', re.I)
-MM_RE = re.compile(r'\b(120|140|160|180|203)\s*мм\b', re.I)
-SPEED_RE = re.compile(r'\b([6789]|1[0-2])\s*(?:ск|скор|скорост|speed)\b', re.I)
+DIAMETER_RE = re.compile(r"(?<!\d)(12|14|16|18|20|24|26|27[\.,]5|28|29|700c)(?:\s*[xх×]|\s*\"|\s*д|\b)", re.I)
+VOLTAGE_RE = re.compile(r"\b(24|36|48|52|60|72)\s*v\b", re.I)
+AH_RE = re.compile(r"\b(\d{1,2}(?:[\.,]\d+)?)\s*ah\b", re.I)
+WATT_RE = re.compile(r"\b(\d{2,5})\s*(?:w|ват)\b", re.I)
+MM_RE = re.compile(r"\b(140|160|180|203)\s*мм\b", re.I)
+SPEED_RE = re.compile(r"\b(6|7|8|9|10|11|12)\s*(?:ск|скор|скорост|speed)\b", re.I)
 CACHE_DB = Path("photo_cache.db")
+
 
 def init_state():
     defaults = {"offers_by_supplier": {}, "images_by_supplier": {}, "master_df": pd.DataFrame(), "mapping_df": pd.DataFrame(), "r2_exists_cache": {}}
@@ -159,118 +159,214 @@ def signature_name(value: str) -> str:
     tokens = [t for t in value.split() if t not in {"для", "и", "в", "на", "с", "под", "комплект", "шт", "шт.", "новый", "новая"}]
     return " ".join(tokens)
 
-def slugify_text(value: str) -> str:
-    value = normalize_name(value)
-    value = re.sub(r"[^\wа-яА-Я]+", "_", value)
-    value = re.sub(r"_+", "_", value).strip("_")
-    return value[:80]
 
-def extract_specs(text: str) -> dict:
-    text = str(text or "")
-    norm = normalize_name(text)
-    voltage = ah = watt = diameter = rotor_mm = speeds = None
-    m = VOLTAGE_RE.search(norm)
-    if m:
-        voltage = m.group(1)
-    m = AH_RE.search(norm)
-    if m:
-        ah = m.group(1).replace(",", ".")
-    m = WATT_RE.search(norm)
-    if m:
-        watt = m.group(1)
-    m = DIAMETER_RE.search(norm)
-    if m:
-        diameter = m.group(1).replace(",", ".")
-    m = MM_RE.search(norm)
-    if m:
-        rotor_mm = m.group(1)
-    m = SPEED_RE.search(norm)
-    if m:
-        speeds = m.group(1)
-    return {"voltage": voltage, "ah": ah, "watt": watt, "diameter": diameter, "rotor_mm": rotor_mm, "speeds": speeds}
+def extract_diameter(text: str):
+    text = normalize_name(text).replace(",", ".")
+    m = DIAMETER_RE.search(text)
+    if not m:
+        return None
+    raw = m.group(1).lower().replace(",", ".")
+    return raw.upper() if raw == "700c" else raw
 
-def to_float(value):
-    if pd.isna(value) or value == "":
-        return None
-    value = str(value).replace("\xa0", "").replace(" ", "").replace(",", ".")
-    try:
-        return float(value)
-    except Exception:
-        return None
+def format_diameter(raw):
+    if not raw:
+        return ""
+    if str(raw).lower() == "700c":
+        return '700C'
+    value = str(raw).replace(",", ".")
+    if value.endswith(".0"):
+        value = value[:-2]
+    return f'{value}"'
 
-def normalize_stock(value):
-    if pd.isna(value) or value == "":
-        return None
-    text = str(value).strip().lower()
-    mapping = {"нет": 0, "мало": 1, "много": 10, "более 10": 10, "скоро будут": 0, "поз заказ": 0, "распродажа": 1}
-    if text in mapping:
-        return mapping[text]
-    try:
-        return int(float(text))
-    except Exception:
-        return None
+def contains_any(text: str, keywords):
+    return any(keyword in text for keyword in keywords)
 
-def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
+def is_complete_bike(norm: str) -> bool:
+    bike_markers = [" велосипед ", "велосипед ", " электровелосипед", " e-bike", " ebike", " bmx "]
+    if any(marker in f" {norm} " for marker in bike_markers):
+        return True
+    brand_bike_markers = ["bearbike", "blackaqua street beat", "format ", "foxx ", "forward ", "stels ", "welt ", "aspect "]
+    return any(marker in norm for marker in brand_bike_markers)
+
 
 def infer_categories(name: str):
-    norm = normalize_name(name)
+    norm = f" {normalize_name(name)} "
     specs = extract_specs(norm)
-    category_l1 = "Прочее"
-    for cat, keywords in CATEGORY_RULES:
-        if any(keyword in norm for keyword in keywords):
-            category_l1 = cat
-            break
+    diameter = format_diameter(specs.get("diameter"))
 
-    category_l2 = ""
-    if category_l1 == "Аккумуляторы":
-        if specs["voltage"] and specs["ah"]:
-            category_l2 = f"{specs['voltage']}V {specs['ah']}Ah"
-        elif specs["voltage"]:
-            category_l2 = f"{specs['voltage']}V"
-        else:
-            category_l2 = "АКБ"
-    elif category_l1 == "Зарядные устройства":
-        category_l2 = f"{specs['voltage']}V" if specs["voltage"] else "Зарядки"
-    elif category_l1 == "Моторы":
-        if specs["watt"]:
-            category_l2 = f"{specs['watt']}W"
-        elif specs["diameter"]:
-            category_l2 = f'Под {specs["diameter"]}"'
-        else:
-            category_l2 = "Моторы"
-    elif category_l1 in {"Колёса", "Покрышки", "Камеры", "Обода и спицы"}:
-        if specs["diameter"]:
-            category_l2 = f'Диаметр {specs["diameter"]}"'
-        else:
-            category_l2 = category_l1
-    elif category_l1 == "Тормозные колодки":
-        category_l2 = "Колодки"
-    elif category_l1 == "Роторы":
-        category_l2 = f'{specs["rotor_mm"]} мм' if specs["rotor_mm"] else "Роторы"
-    elif category_l1 in {"Цепи", "Кассеты и трещотки"}:
-        category_l2 = f'{specs["speeds"]}-скоростная' if specs["speeds"] else category_l1
-    elif category_l1 == "Тормоза":
+    if is_complete_bike(norm) and not contains_any(norm, ["щетка", "бутылоч", "аптечка", "держатель", "замок", "крыл", "поднож", "фонарь"]):
+        return "Велосипеды", (f"Диаметр {diameter}" if diameter else "Велосипеды")
+
+    if contains_any(norm, ["аккумулятор", " акб ", "battery", "lifepo4", " li-ion", " li ion"]):
+        if specs.get("voltage") and specs.get("ah"):
+            return "Аккумуляторы", f"{specs['voltage']}V {specs['ah']}Ah".replace(".", ",")
+        if specs.get("voltage"):
+            return "Аккумуляторы", f"{specs['voltage']}V"
+        return "Аккумуляторы", "Аккумуляторы"
+
+    if contains_any(norm, ["зарядн", "charger", "блок питания"]):
+        if specs.get("voltage"):
+            return "Зарядные устройства", f"{specs['voltage']}V"
+        return "Зарядные устройства", "Зарядные устройства"
+
+    if "контроллер" in norm:
+        if specs.get("voltage") and specs.get("watt"):
+            return "Контроллеры", f"{specs['voltage']}V {specs['watt']}W"
+        if specs.get("voltage"):
+            return "Контроллеры", f"{specs['voltage']}V"
+        return "Контроллеры", "Контроллеры"
+
+    if contains_any(norm, ["дисплей", " display ", " lcd ", " led "]):
+        return "Дисплеи", "LCD/LED"
+
+    if contains_any(norm, ["мотор-колес", "мотор колес", "мотор-втулк", "электромотор", " motor ", " motor-", " hub motor"]):
+        if specs.get("watt") and specs.get("voltage"):
+            return "Моторы", f"{specs['voltage']}V {specs['watt']}W"
+        if specs.get("watt"):
+            return "Моторы", f"{specs['watt']}W"
+        return "Моторы", "Моторы"
+
+    if contains_any(norm, ["покрыш", "шина", "tire"]) and "ободная лента" not in norm:
+        return "Покрышки", (f"Диаметр {diameter}" if diameter else "Покрышки")
+
+    if "камера" in norm:
+        return "Камеры", (f"Диаметр {diameter}" if diameter else "Камеры")
+
+    if contains_any(norm, ["ободная лента", "обод", "rim"]):
+        return "Обода и спицы", (f"Обод {diameter}" if diameter else "Обода")
+
+    if contains_any(norm, ["спиц", "ниппель спицы", "spoke"]):
+        return "Обода и спицы", "Спицы"
+
+    if "втулк" in norm:
+        if "перед" in norm:
+            return "Втулки", "Передние"
+        if "зад" in norm:
+            return "Втулки", "Задние"
+        return "Втулки", "Втулки"
+
+    if "колодк" in norm:
+        return "Тормозные колодки", "Колодки"
+
+    if contains_any(norm, ["ротор", "диск тормоз", "disc rotor", " rotor "]):
+        mm = MM_RE.search(norm)
+        return "Роторы", (f"{mm.group(1)} мм" if mm else "Роторы")
+
+    if contains_any(norm, ["тормоз", "brake", "калипер", "гидролиния"]):
         if "гидр" in norm:
-            category_l2 = "Гидравлические"
-        elif "мех" in norm:
-            category_l2 = "Механические"
-        else:
-            category_l2 = "Тормозные системы"
-    elif category_l1 == "Контроллеры":
-        if specs["voltage"] and specs["watt"]:
-            category_l2 = f"{specs['voltage']}V {specs['watt']}W"
-        elif specs["voltage"]:
-            category_l2 = f"{specs['voltage']}V"
-        else:
-            category_l2 = "Контроллеры"
-    elif category_l1 == "Дисплеи":
-        category_l2 = "LCD/LED"
-    elif category_l1 == "Велосипеды":
-        category_l2 = "Электровелосипеды" if "электро" in norm or "e-bike" in norm or "ebike" in norm else "Велосипеды"
-    return category_l1, category_l2
+            return "Тормоза", "Гидравлические"
+        if "мех" in norm:
+            return "Тормоза", "Механические"
+        return "Тормоза", "Тормоза"
+
+    if "цепь" in norm:
+        speed = SPEED_RE.search(norm)
+        return "Цепи", (f"{speed.group(1)}-ск" if speed else "Цепи")
+
+    if contains_any(norm, ["кассет", "cassette"]):
+        speed = SPEED_RE.search(norm)
+        return "Кассеты и трещотки", (f"Кассеты {speed.group(1)}-ск" if speed else "Кассеты")
+
+    if contains_any(norm, ["трещот", "freewheel"]):
+        speed = SPEED_RE.search(norm)
+        return "Кассеты и трещотки", (f"Трещотки {speed.group(1)}-ск" if speed else "Трещотки")
+
+    if contains_any(norm, ["звезд", "chainring", "sprocket"]):
+        return "Звёзды", "Звёзды"
+
+    if "шатун" in norm:
+        return "Шатуны и каретки", "Шатуны"
+
+    if "каретк" in norm:
+        return "Шатуны и каретки", "Каретки"
+
+    if "педал" in norm:
+        return "Педали", "Педали"
+
+    if "переключател" in norm or "derailleur" in norm:
+        if "перед" in norm:
+            return "Переключатели", "Передние"
+        if "зад" in norm:
+            return "Переключатели", "Задние"
+        return "Переключатели", "Переключатели"
+
+    if contains_any(norm, ["манетк", "грипшифт", "gripshift", "шифтер"]):
+        return "Манетки", "Манетки"
+
+    if "руль" in norm and "держатель велосипеда" not in norm:
+        return "Рули", "Рули"
+
+    if "вынос" in norm:
+        return "Выносы", "Выносы"
+
+    if contains_any(norm, ["грипс", "ручки руля", " grip "]):
+        return "Грипсы", "Грипсы"
+
+    if "седл" in norm:
+        return "Седла", "Седла"
+
+    if "подседел" in norm:
+        return "Подседельные штыри", "Подседельные штыри"
+
+    if "хомут" in norm:
+        return "Хомуты", "Хомуты"
+
+    if "вилка" in norm:
+        return "Вилки", (f"Диаметр {diameter}" if diameter else "Вилки")
+
+    if "амортиз" in norm or " shock " in norm:
+        return "Амортизаторы", "Амортизаторы"
+
+    if "крыл" in norm:
+        return "Крылья", (f"Диаметр {diameter}" if diameter else "Крылья")
+
+    if "багажник" in norm:
+        return "Багажники", "Багажники"
+
+    if "поднож" in norm:
+        return "Подножки", "Подножки"
+
+    if "зеркал" in norm:
+        return "Зеркала", "Зеркала"
+
+    if "замок" in norm or " lock " in norm:
+        return "Замки", "Замки"
+
+    if contains_any(norm, ["фонарь", "фара", "light", "lamp", "свет"]):
+        if "зад" in norm:
+            return "Освещение", "Задние"
+        if "перед" in norm:
+            return "Освещение", "Передние"
+        return "Освещение", "Освещение"
+
+    if contains_any(norm, ["ключ", "отвертк", "отвёртк", "съемник", "съёмник", "tool", "wrench", "шестигран"]):
+        return "Инструменты", "Инструменты"
+
+    if contains_any(norm, ["смазк", "масло", "герметик", "очиститель", "lubric", "grease", "oil"]):
+        return "Смазки и химия", "Смазки и химия"
+
+    if contains_any(norm, ["шлем", "налокотник", "наколенник", "защит", "helmet", "перчатки", "glove"]):
+        return "Защита", "Защита"
+
+    if contains_any(norm, ["бутылоч", "фляга", "флягодерж", "bottle cage", "сумк", "рюкзак", "bag"]):
+        if contains_any(norm, ["бутылоч", "фляга"]):
+            return "Сумки и флягодержатели", "Фляги"
+        if contains_any(norm, ["флягодерж", "bottle cage"]):
+            return "Сумки и флягодержатели", "Флягодержатели"
+        return "Сумки и флягодержатели", "Сумки и рюкзаки"
+
+    if contains_any(norm, ["болт", "гайк", "винт", "шайб", "крепеж", "крепёж", "проставка", "washer", "bolt", "nut", "screw"]):
+        return "Крепёж", "Крепёж"
+
+    if contains_any(norm, ["колесо", "wheel"]) and not contains_any(norm, ["держатель велосипеда", "крепление за колесо", "колесико переключателя", "ролик переключателя"]):
+        if "перед" in norm:
+            return "Колёса", (f"Переднее {diameter}" if diameter else "Передние")
+        if "зад" in norm:
+            return "Колёса", (f"Заднее {diameter}" if diameter else "Задние")
+        return "Колёса", (f"Диаметр {diameter}" if diameter else "Колёса")
+
+    return "Прочее", ""
+
 
 def normalize_google_sheet_url(url: str) -> str:
     if "docs.google.com/spreadsheets" in url and "/edit" in url:
@@ -322,14 +418,6 @@ def extract_hyperlinks_map(ws, header_row):
             mapping[row] = cell.hyperlink.target
     return mapping
 
-def build_stable_photo_seed(supplier_key: str, supplier_article: str, name: str, normalized_name: str = "") -> str:
-    article = str(supplier_article or "").strip()
-    normalized_name = normalized_name or normalize_name(name)
-    if article:
-        return f"{supplier_key}|article|{article.lower()}"
-    signature = signature_name(normalized_name) or slugify_text(normalized_name) or "item"
-    return f"{supplier_key}|name|{signature}"
-
 def safe_ext_from_url(url: str) -> str:
     for ext in [".jpg", ".jpeg", ".png", ".webp"]:
         if ext in url.lower():
@@ -362,41 +450,57 @@ def build_photo_ref(prefix: str, seed: str, ext: str):
 def attach_images(parsed_df, supplier_key, workbook, header_row):
     parsed_df = parsed_df.copy()
     image_store = {}
-    photo_refs, source_urls = [], []
+    parsed_df["photo_ref"] = ""
+    parsed_df["source_image_url"] = ""
+
+    def stable_seed(row, fallback_prefix=""):
+        supplier_article = str(row.get("supplier_article", "") or "").strip()
+        normalized_name = str(row.get("normalized_name", "") or normalize_name(row.get("name", "")))
+        if supplier_article:
+            return f"{supplier_key}|article|{supplier_article}"
+        return f"{supplier_key}|name|{normalized_name}"
+
     if supplier_key == "s2" and workbook is not None:
         ws = workbook[SUPPLIERS[supplier_key]["sheet_name"]]
         links_map = extract_hyperlinks_map(ws, header_row)
+        photo_refs, source_urls = [], []
         for _, row in parsed_df.iterrows():
             excel_row = int(row.get("__excel_row__", 0))
             url = links_map.get(excel_row, "")
             source_urls.append(url)
             if url:
                 ext = safe_ext_from_url(url)
-                seed = build_stable_photo_seed(supplier_key, row.get("supplier_article", ""), row.get("name", ""), row.get("normalized_name", ""))
-                photo_ref = build_photo_ref(supplier_key, seed, ext)
-                photo_refs.append(photo_ref)
+                photo_refs.append(build_photo_ref("s2", stable_seed(row), ext))
             else:
                 photo_refs.append("")
         parsed_df["source_image_url"] = source_urls
         parsed_df["photo_ref"] = photo_refs
         return parsed_df, {}
+
     if supplier_key in ["s3", "s4"] and workbook is not None:
         ws = workbook[SUPPLIERS[supplier_key]["sheet_name"]]
         img_map = extract_images_map(ws)
+        photo_refs = []
         for _, row in parsed_df.iterrows():
             excel_row = int(row.get("__excel_row__", 0))
             img_bytes = img_map.get(excel_row)
             if img_bytes:
-                seed = build_stable_photo_seed(supplier_key, row.get("supplier_article", ""), row.get("name", ""), row.get("normalized_name", ""))
-                photo_ref = build_photo_ref(supplier_key, seed, ".png")
+                photo_ref = build_photo_ref(supplier_key, stable_seed(row), ".png")
                 image_store[photo_ref] = img_bytes
                 photo_refs.append(photo_ref)
             else:
                 photo_refs.append("")
-            source_urls.append("")
-        parsed_df["source_image_url"] = source_urls
         parsed_df["photo_ref"] = photo_refs
         return parsed_df, image_store
+
+    if "image_url" in parsed_df.columns:
+        parsed_df["source_image_url"] = parsed_df["image_url"].fillna("")
+        parsed_df["photo_ref"] = parsed_df.apply(
+            lambda row: build_photo_ref(supplier_key, stable_seed(row), safe_ext_from_url(str(row.get("image_url", "") or "")))
+            if str(row.get("image_url", "") or "").strip() else "",
+            axis=1
+        )
+    return parsed_df, image_store
     parsed_df["source_image_url"] = parsed_df.get("image_url", "")
     parsed_df["photo_ref"] = ""
     return parsed_df, image_store
@@ -499,7 +603,7 @@ def duplicate_score(row_a: dict, row_b: dict) -> float:
     score = max(fuzz.token_sort_ratio(a, b), fuzz.token_set_ratio(a, b), fuzz.partial_ratio(a, b))
     specs_a = row_a.get("specs", {}) or {}
     specs_b = row_b.get("specs", {}) or {}
-    for key in ["voltage", "ah", "watt", "diameter", "rotor_mm", "speeds"]:
+    for key in ["voltage", "ah", "watt", "diameter"]:
         va = specs_a.get(key); vb = specs_b.get(key)
         if va and vb:
             if va == vb: score += 4
@@ -615,26 +719,34 @@ def build_master(offers_df):
 def build_excel_bytes(df: pd.DataFrame, sheet_name: str):
     output = io.BytesIO()
     export_df = df.copy()
-    if sheet_name == "final_price":
-        rename_map = {
-            "master_id": "ID",
-            "article": "Артикул",
-            "normalized_name": "Наименование",
-            "category_l1": "Категория",
-            "category_l2": "Подкатегория",
-            "final_price": "Закупка",
-            "final_stock": "Наличие",
-            "price_with_markup": "Цена Оптовая",
-            "final_image_public_url": "Ссылка на фото",
-        }
-        ordered_cols = [
-            "master_id", "article", "normalized_name", "category_l1", "category_l2",
-            "final_price", "final_stock", "price_with_markup", "final_image_public_url",
-        ]
-        for col in ordered_cols:
-            if col not in export_df.columns:
-                export_df[col] = ""
-        export_df = export_df[ordered_cols].rename(columns=rename_map)
+
+    if "final_image_public_url" not in export_df.columns:
+        export_df["final_image_public_url"] = ""
+
+    if "final_image" in export_df.columns and has_r2_config():
+        export_df["final_image_public_url"] = export_df.apply(
+            lambda row: row.get("final_image_public_url") or (r2_public_url_for_key(str(row.get("final_image", "")).strip()) if str(row.get("final_image", "")).strip() else ""),
+            axis=1,
+        )
+
+    rename_map = {
+        "master_id": "ID",
+        "article": "Артикул",
+        "normalized_name": "Наименование",
+        "category_l1": "Категория",
+        "category_l2": "Подкатегория",
+        "final_price": "Закупка",
+        "final_stock": "Наличие",
+        "price_with_markup": "Цена Оптовая",
+        "final_image_public_url": "Ссылка на фото",
+    }
+    ordered = ["master_id", "article", "normalized_name", "category_l1", "category_l2", "final_price", "final_stock", "price_with_markup", "final_image_public_url"]
+    export_df = export_df.copy()
+    for col in ordered:
+        if col not in export_df.columns:
+            export_df[col] = ""
+    export_df = export_df[ordered].rename(columns=rename_map)
+
     for col in export_df.columns:
         if export_df[col].dtype == "object":
             export_df[col] = export_df[col].fillna("")
@@ -697,9 +809,9 @@ def upload_final_images_to_r2(export_df: pd.DataFrame, offers_by_supplier: dict,
     if not has_r2_config():
         raise ValueError("R2 secrets не настроены в Streamlit.")
     in_memory = {}
-    source_lookup = {}
     for supplier_images in images_by_supplier.values():
         in_memory.update(supplier_images)
+    source_lookup = {}
     for _, df in offers_by_supplier.items():
         if df is None or df.empty:
             continue
@@ -720,8 +832,6 @@ def upload_final_images_to_r2(export_df: pd.DataFrame, offers_by_supplier: dict,
     total = max(len(export_df), 1)
     for idx, (_, row) in enumerate(export_df.iterrows(), start=1):
         key = str(row.get("final_image", "") or "").strip()
-        article = str(row.get("article", "") or "")
-        master_norm = str(row.get("normalized_name", "") or "")
         if not key:
             final_urls.append("")
             stats["missed"] += 1
@@ -731,50 +841,55 @@ def upload_final_images_to_r2(export_df: pd.DataFrame, offers_by_supplier: dict,
             final_urls.append(uploaded_map[key])
             progress.progress(idx / total, text=f"Фото {idx}/{total}")
             continue
+
+        master_norm = str(row.get("normalized_name", "") or "")
+        article = str(row.get("article", "") or "")
         found_url = None
         found_cache_key = None
+        source_data = None
+
         for supplier_code in ["s1", "s2", "s3", "s4"]:
             ck = build_cache_key(supplier_code, article, master_norm)
             cached = get_cached_photo(ck)
-            if cached and cached.get("photo_ref") == key and cached.get("r2_url"):
+            if cached and cached.get("r2_url"):
                 found_url = cached["r2_url"]
                 found_cache_key = ck
                 break
+
         if found_url:
             uploaded_map[key] = found_url
             final_urls.append(found_url)
             stats["cache_db"] += 1
             progress.progress(idx / total, text=f"Фото {idx}/{total}")
             continue
-        if r2_object_exists(key):
-            public_url = r2_public_url_for_key(key)
-            uploaded_map[key] = public_url
-            final_urls.append(public_url)
-            stats["cache_r2"] += 1
-            for supplier_code in ["s1", "s2", "s3", "s4"]:
-                ck = build_cache_key(supplier_code, article, master_norm)
-                src = source_lookup.get(ck)
-                if src and src.get("photo_ref") == key:
-                    upsert_cached_photo(ck, src["supplier"], src["supplier_article"], src["normalized_name"], key, public_url, src["source_image_url"])
-                    break
-            progress.progress(idx / total, text=f"Фото {idx}/{total}")
-            continue
-        source_data = None
+
         for ck, payload in source_lookup.items():
             if payload["photo_ref"] == key:
                 source_data = payload
                 found_cache_key = ck
                 break
+
+        if r2_object_exists(key):
+            public_url = r2_public_url_for_key(key)
+            uploaded_map[key] = public_url
+            final_urls.append(public_url)
+            stats["cache_r2"] += 1
+            if source_data:
+                upsert_cached_photo(found_cache_key, source_data["supplier"], source_data["supplier_article"], source_data["normalized_name"], key, public_url, source_data["source_image_url"])
+            progress.progress(idx / total, text=f"Фото {idx}/{total}")
+            continue
+
         data = in_memory.get(key)
         if data:
             public_url, mode = upload_bytes_to_r2_if_needed(key, data, guess_content_type(key))
             uploaded_map[key] = public_url
             final_urls.append(public_url)
             stats["uploaded" if mode == "uploaded" else "cache_r2"] += 1
-            if source_data and found_cache_key:
+            if source_data:
                 upsert_cached_photo(found_cache_key, source_data["supplier"], source_data["supplier_article"], source_data["normalized_name"], key, public_url, source_data["source_image_url"])
             progress.progress(idx / total, text=f"Фото {idx}/{total}")
             continue
+
         if source_data and source_data["source_image_url"]:
             data = download_image_bytes(source_data["source_image_url"])
             if data:
@@ -782,11 +897,11 @@ def upload_final_images_to_r2(export_df: pd.DataFrame, offers_by_supplier: dict,
                 uploaded_map[key] = public_url
                 final_urls.append(public_url)
                 stats["uploaded" if mode == "uploaded" else "cache_r2"] += 1
-                if found_cache_key:
-                    upsert_cached_photo(found_cache_key, source_data["supplier"], source_data["supplier_article"], source_data["normalized_name"], key, public_url, source_data["source_image_url"])
+                upsert_cached_photo(found_cache_key, source_data["supplier"], source_data["supplier_article"], source_data["normalized_name"], key, public_url, source_data["source_image_url"])
                 progress.progress(idx / total, text=f"Фото {idx}/{total}")
                 continue
-        final_urls.append("")
+
+        final_urls.append(r2_public_url_for_key(key))
         stats["missed"] += 1
         progress.progress(idx / total, text=f"Фото {idx}/{total}")
     progress.empty()
@@ -813,9 +928,9 @@ if page == "Дашборд":
     c1.metric("Всего строк поставщиков", total_rows)
     c2.metric("Карточек в итоге", len(st.session_state.master_df))
     c3.metric("Связей", len(st.session_state.mapping_df))
-    c4.metric("Photo-cache SQLite", get_photo_cache_count())
+    c4.metric("Photo-cache", get_photo_cache_count())
     st.dataframe(pd.DataFrame(supplier_stats), use_container_width=True)
-    st.info("SQLite здесь только как ускоритель. Главный кэш фото — в R2: при стабильных photo_ref повторная выгрузка должна переиспользовать уже загруженные изображения.")
+    st.info("Локальный photo-cache включен: после первой удачной загрузки фото в R2 связь товара и фото сохраняется в SQLite.")
 
 elif page == "Загрузка прайсов":
     st.title("📥 Загрузка прайсов")
@@ -890,12 +1005,13 @@ elif page == "Итоговый прайс":
             filtered_df = filtered_df[filtered_df["category_l2"].isin(selected_l2)]
         export_df = filtered_df.copy()
         export_df["price_with_markup"] = export_df["final_price"].apply(lambda x: round(float(x) * (1 + markup_percent / 100), 2) if pd.notna(x) else None)
+        export_df["final_image_public_url"] = export_df["final_image"].apply(lambda x: r2_public_url_for_key(str(x).strip()) if has_r2_config() and str(x).strip() else "")
         auto_upload = st.checkbox("Автоматически загрузить фото в R2 перед выгрузкой", value=False)
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Карточек", len(export_df))
         c2.metric("С фото", int((export_df["final_image"].fillna("") != "").sum()))
-        c3.metric("Наценка", f"{markup_percent:.0f}%")
-        c4.metric("Photo-cache SQLite", get_photo_cache_count())
+        c3.metric("С ссылкой", int((export_df["final_image_public_url"].fillna("") != "").sum()))
+        c4.metric("Photo-cache", get_photo_cache_count())
         if auto_upload:
             if has_r2_config():
                 try:
